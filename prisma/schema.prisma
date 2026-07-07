@@ -1,0 +1,304 @@
+datasource db {
+  provider = "mysql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique // ADMIN, CASHIER, BARISTA, CUSTOMER
+  description String?
+  users       User[]
+
+  @@map("roles")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  username  String   @unique
+  email     String?  @unique
+  password  String // Hashed password
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  shifts    Shift[]
+  orders    Order[]  @relation("CashierOrders")
+
+  @@map("users")
+}
+
+model Table {
+  id          String      @id @default(uuid())
+  number      Int         @unique
+  capacity    Int         @default(4)
+  status      TableStatus @default(AVAILABLE) // AVAILABLE, OCCUPIED, RESERVED
+  qrCodeUrl   String?
+  orders      Order[]
+
+  @@map("tables")
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+}
+
+model Category {
+  id       String    @id @default(uuid())
+  name     String    @unique
+  slug     String    @unique
+  products Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id          String          @id @default(uuid())
+  name        String
+  description String?         @db.Text
+  price       Decimal         @db.Decimal(10, 2)
+  categoryId  String
+  category    Category        @relation(fields: [categoryId], references: [id])
+  photo       String?         @db.Text
+  isAvailable Boolean         @default(true)
+  stock       Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  recipes     Recipe[]
+  orderItems  OrderItem[]
+  options     ProductOption[]
+
+  @@map("products")
+}
+
+model ProductOption {
+  id              String  @id @default(uuid())
+  productId       String
+  product         Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name            String // Size, Sugar, Ice, etc.
+  value           String // Regular, Large, Normal, Less, etc.
+  priceAdjustment Decimal @default(0.00) @db.Decimal(10, 2)
+
+  @@map("product_options")
+}
+
+model Topping {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  price       Decimal  @db.Decimal(10, 2)
+  stock       Int      @default(0)
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("toppings")
+}
+
+model Ingredient {
+  id          String         @id @default(uuid())
+  name        String         @unique
+  stock       Decimal        @default(0.00) @db.Decimal(10, 2)
+  unit        String // g, ml, pcs, etc.
+  recipes     Recipe[]
+  logs        InventoryLog[]
+
+  @@map("ingredients")
+}
+
+model Recipe {
+  id           String     @id @default(uuid())
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  quantity     Decimal    @db.Decimal(10, 2)
+
+  @@map("recipes")
+}
+
+model InventoryLog {
+  id           String     @id @default(uuid())
+  ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  change       Decimal    @db.Decimal(10, 2) // positive for restock, negative for deduction
+  reason       String
+  userId       String?
+  createdAt    DateTime   @default(now())
+
+  @@map("inventory_logs")
+}
+
+model Order {
+  id             String      @id @default(uuid())
+  orderNumber    String      @unique
+  tableId        String?
+  table          Table?      @relation(fields: [tableId], references: [id])
+  tableNumber    Int?
+  customerName   String?
+  cashierId      String?
+  cashier        User?       @relation("CashierOrders", fields: [cashierId], references: [id])
+  status         OrderStatus @default(PENDING_PAYMENT)
+  subtotal       Decimal     @db.Decimal(10, 2)
+  discount       Decimal     @default(0.00) @db.Decimal(10, 2)
+  tax            Decimal     @db.Decimal(10, 2)
+  total          Decimal     @db.Decimal(10, 2)
+  paymentStatus  PayStatus   @default(UNPAID)
+  paymentMethod  PayMethod?
+  voucherCode    String?
+  notes          String?     @db.Text
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  items          OrderItem[]
+  payments       Payment[]
+  reviews        Review[]
+
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  WAITING
+  ACCEPTED
+  MAKING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum PayStatus {
+  UNPAID
+  PAID
+  REFUNDED
+}
+
+enum PayMethod {
+  CASH
+  QRIS
+  DEBIT
+}
+
+model OrderItem {
+  id          String    @id @default(uuid())
+  orderId     String
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id])
+  name        String
+  price       Decimal   @db.Decimal(10, 2)
+  quantity    Int
+  size        String?
+  sugarLevel  String?
+  iceLevel    String?
+  toppings    Json?
+  notes       String?   @db.Text
+
+  @@map("order_items")
+}
+
+model Payment {
+  id          String        @id @default(uuid())
+  orderId     String
+  order       Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount      Decimal       @db.Decimal(10, 2)
+  paymentType PayMethod
+  status      PaymentStatus @default(COMPLETED)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("payments")
+}
+
+enum PaymentStatus {
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+model Shift {
+  id         String      @id @default(uuid())
+  cashierId  String
+  cashier    User        @relation(fields: [cashierId], references: [id])
+  startTime  DateTime    @default(now())
+  endTime    DateTime?
+  startCash  Decimal     @db.Decimal(10, 2)
+  endCash    Decimal?    @db.Decimal(10, 2)
+  actualCash Decimal?    @db.Decimal(10, 2)
+  notes      String?     @db.Text
+  status     ShiftStatus @default(OPEN)
+  createdAt  DateTime    @default(now())
+
+  @@map("shifts")
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}
+
+model Voucher {
+  id             String      @id @default(uuid())
+  code           String      @unique
+  discountType   VoucherType
+  discountValue  Decimal     @db.Decimal(10, 2)
+  maxDiscount    Decimal?    @db.Decimal(10, 2)
+  minOrderAmount Decimal     @default(0.00) @db.Decimal(10, 2)
+  expiryDate     DateTime
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+
+  @@map("vouchers")
+}
+
+enum VoucherType {
+  PERCENTAGE
+  FIXED
+}
+
+model Promotion {
+  id            String   @id @default(uuid())
+  title         String
+  description   String   @db.Text
+  imageUrl      String?  @db.Text
+  discountValue Decimal? @db.Decimal(10, 2)
+  isActive      Boolean  @default(true)
+  startDate     DateTime
+  endDate       DateTime
+  createdAt     DateTime @default(now())
+
+  @@map("promotions")
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@map("reviews")
+}
+
+model Notification {
+  id          String             @id @default(uuid())
+  title       String
+  message     String             @db.Text
+  role        NotificationTarget @default(CUSTOMER)
+  tableNumber Int?
+  isRead      Boolean            @default(false)
+  createdAt   DateTime           @default(now())
+
+  @@map("notifications")
+}
+
+enum NotificationTarget {
+  CUSTOMER
+  CASHIER
+  BARISTA
+  ADMIN
+}
